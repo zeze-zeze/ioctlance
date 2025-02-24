@@ -32,6 +32,7 @@ Presented at [CODE BLUE 2023](https://codeblue.jp/2023/en/), this project titled
 ### Docker (Recommand)
 ```
 docker build .
+docker run -it <IOCTLance IMAGE ID> bash
 ```
 
 ### Local
