@@ -145,7 +145,7 @@ def hunting(driver_base_state: angr.SimState, ioctl_handler_addr):
     driver_base_state.globals['tainted_ProbeForWrite'] = ()
     driver_base_state.globals['tainted_MmIsAddressValid'] = ()
     driver_base_state.globals['tainted_eprocess'] = ()
-
+    driver_base_state.globals['tainted_handles'] = ()
     
     state: angr.SimState = globals.proj.factory.call_state(ioctl_handler_addr, device_object_addr, globals.irp_addr, cc=globals.mycc,
                                                    base_state=driver_base_state)
@@ -419,6 +419,7 @@ def analyze_driver(driver_path):
     globals.proj.hook_symbol("ZwDeleteValueKey", hooks.HookZwDeleteValueKey(cc=globals.mycc))
     globals.proj.hook_symbol("ZwQueryValueKey", hooks.HookZwQueryValueKey(cc=globals.mycc))
     globals.proj.hook_symbol("NdisRegisterProtocolDriver", hooks.HookNdisRegisterProtocolDriver(cc=globals.mycc))
+    globals.proj.hook_symbol("ZwTerminateProcess", hooks.HookZwTerminateProcess(cc=globals.mycc))
 
     # Only hook for phase 2 to hunt vulnerabilities.
     globals.proj.hook_symbol("ExAllocatePool", hooks.HookExAllocatePool(cc=globals.mycc))
