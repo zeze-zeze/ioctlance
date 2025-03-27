@@ -394,7 +394,7 @@ class HookZwOpenProcess(angr.SimProcedure):
             # Check if we can control the parameters of ZwOpenProcess.
             if tmp_state.satisfiable() and (utils.tainted_buffer(ClientId) or utils.tainted_buffer(cid.UniqueProcess)):
                 ret_addr = hex(self.state.callstack.ret_addr)
-                self.state.globals['tainted_handles'] = (str(handle), )
+                self.state.globals['tainted_handles'] += (str(handle), )
                 utils.print_vuln('controllable process handle', 'ZwOpenProcess - ClientId controllable', self.state, {'ClientId': str(ClientId), 'ClientId.UniqueProcess': str(cid.UniqueProcess)}, {'return address': ret_addr})
         
         return 0
@@ -420,7 +420,7 @@ class HookObOpenObjectByPointer(angr.SimProcedure):
             self.state.memory.store(Handle, handle,  self.state.arch.bytes, endness=self.state.arch.memory_endness, disable_actions=True, inspect=False)
             # Check if we can control the parameters of ObOpenObjectByPointer.
             if tmp_state.satisfiable() and str(Object) in self.state.globals['tainted_eprocess']:
-                self.state.globals['tainted_handles'] = (str(handle), )
+                self.state.globals['tainted_handles'] += (str(handle), )
                 ret_addr = hex(self.state.callstack.ret_addr)
                 utils.print_vuln('controllable process handle', 'ObOpenObjectByPointer - Object controllable', self.state, {'Object': str(Object), 'Handle': str(Handle)}, {'return address': ret_addr})
         return 0
@@ -429,9 +429,7 @@ class HookZwTerminateProcess(angr.SimProcedure):
     def run(self, ProcessHandle, ExitStatus):
         ret_addr = hex(self.state.callstack.ret_addr)
         if str(ProcessHandle) in self.state.globals['tainted_handles']:
-            utils.print_vuln('controllable ZwTerminateProcess', 'ZwTerminateProcess - handle controllable', self.state, {'ProcessHandle': str(ProcessHandle)}, {'return address': ret_addr})
-        else:
-            utils.print_vuln('ZwTerminateProcess', 'ZwTerminateProcess - handle not symbolic', self.state, {'ProcessHandle': str(ProcessHandle)}, {'return address': ret_addr})
+            utils.print_vuln('arbitrary process termination', 'ZwTerminateProcess - handle controllable', self.state, {'ProcessHandle': str(ProcessHandle)}, {'return address': ret_addr})
     
 class HookMemcpy(angr.SimProcedure):
     def run(self, dest, src, size):

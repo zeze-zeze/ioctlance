@@ -17,7 +17,7 @@ Presented at [CODE BLUE 2023](https://codeblue.jp/2023/en/), this project titled
 - arbitrary wrmsr
 - arbitrary out
 - dangerous file operation
-- arbitrary process termination (exploitable by EDR Killers)
+- arbitrary process termination
 
 
 ### Optional Customizations
