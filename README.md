@@ -1,6 +1,6 @@
 # IOCTLance
 <p align="center">
-  <img src="asset/ioctlance.png">
+  <img src="asset/ioctlance.jfif" width="30%">
 </p>
 
 ## Description
