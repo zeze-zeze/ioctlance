@@ -126,15 +126,17 @@ def find_ioctl_handler():
 def fix_object_type_import(state: angr.SimState, object_type_name: str, object_type_import):    
     if not object_type_import:
         return None
-    else:
-        # A "object_type_import" point to a kernel memory containing our kernel-defined *ObjectType, which ioctlance intialize to 0
-        ps_object_type = state.memory.load(object_type_import, state.arch.bytes, endness=state.arch.memory_endness)
-        assert(ps_object_type.concrete)
+    
+    # An "object_type_import" points to a kernel memory containing our kernel-defined *ObjectType, which ioctlance intialize to 0
+    ps_object_type = state.memory.load(object_type_import, state.arch.bytes, endness=state.arch.memory_endness)
+    if not ps_object_type.concrete:
+        utils.print_error(f"Unable to correctly evaluate {object_type_name} import")
+        return None
 
-        # We need to store a symbolic value to represent the *ObjectType to recognize it later inside a kernel function hook
-        star_ps_object_type = claripy.BVS(f'*{object_type_name}', state.arch.bits)
-        state.memory.store(ps_object_type, star_ps_object_type, state.arch.bytes, endness=state.arch.memory_endness, disable_actions=True, inspect=False)
-        return star_ps_object_type
+    # We need to store a symbolic value to represent the *ObjectType to recognize it later inside a kernel function hook
+    star_ps_object_type = claripy.BVS(f'*{object_type_name}', state.arch.bits)
+    state.memory.store(ps_object_type, star_ps_object_type, state.arch.bytes, endness=state.arch.memory_endness, disable_actions=True, inspect=False)
+    return star_ps_object_type
     
 def hunting(driver_base_state: angr.SimState, ioctl_handler_addr):
     globals.phase = 2
