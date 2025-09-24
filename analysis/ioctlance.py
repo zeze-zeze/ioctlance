@@ -123,7 +123,19 @@ def find_ioctl_handler():
     else:
         return globals.ioctl_handler, None
 
+def fix_object_type_import(state: angr.SimState, object_type_name: str, object_type_import):    
+    if not object_type_import:
+        return None
+    else:
+        # A "object_type_import" point to a kernel memory containing our kernel-defined *ObjectType, which ioctlance intialize to 0
+        ps_object_type = state.memory.load(object_type_import, state.arch.bytes, endness=state.arch.memory_endness)
+        assert(ps_object_type.concrete)
 
+        # We need to store a symbolic value to represent the *ObjectType to recognize it later inside a kernel function hook
+        star_ps_object_type = claripy.BVS(f'*{object_type_name}', state.arch.bits)
+        state.memory.store(ps_object_type, star_ps_object_type, state.arch.bytes, endness=state.arch.memory_endness, disable_actions=True, inspect=False)
+        return star_ps_object_type
+    
 def hunting(driver_base_state: angr.SimState, ioctl_handler_addr):
     globals.phase = 2
     if 'device_object_addr' in driver_base_state.globals:
@@ -171,6 +183,12 @@ def hunting(driver_base_state: angr.SimState, ioctl_handler_addr):
     major_func, minor_func, globals.OutputBufferLength, globals.InputBufferLength, globals.IoControlCode = map(lambda x: claripy.BVS(*x), [
         ("MajorFunction", 8), ("MinorFunction", 8), ('OutputBufferLength', 32), ('InputBufferLength', 32),
         ('IoControlCode', 32)])
+    
+    # Resolve imported symbols addresses in driver memory
+    globals.ps_process_type = utils.resolve_import_symbol_in_object(globals.proj.loader.main_object, "PsProcessType")
+    
+    # Fixup import symbols
+    globals.star_ps_process_type = fix_object_type_import(state, "PsProcessType", globals.ps_process_type)
 
     # Set the initial value of the IRP.
     state.mem[globals.irp_addr].IRP.Tail.Overlay.s.u.CurrentStackLocation = globals.irsp_addr

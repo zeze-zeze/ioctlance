@@ -1,4 +1,7 @@
 import collections
+import cle
+from cle.backends.pe.relocation.generic import DllImport
+from typing import Optional
 import globals
 import sys
 import json
@@ -154,3 +157,17 @@ def find_driver_type():
         print_info(f'Different driver type detected: {globals.proj}')
 
     return driver_type
+
+def resolve_import_symbol_in_object(pe_object: cle.backends.pe.pe.PE, symbol_name: str) -> Optional[int]:
+    if symbol_name not in pe_object.imports:
+        return None
+    
+    sym_import: DllImport = pe_object.imports[symbol_name]
+    return pe_object.min_addr + sym_import.relative_addr
+
+def resolve_import_symbol(loader: cle.loader.Loader, symbol_name: str) -> Optional[int]:
+    for obj in loader.all_objects:
+       result = resolve_import_symbol_in_object(obj, symbol_name)
+       if result:
+            return result
+    return None
