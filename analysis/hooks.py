@@ -327,6 +327,10 @@ class HookObReferenceObjectByHandle(angr.SimProcedure):
         ret_addr = hex(self.state.callstack.ret_addr)
         object = claripy.BVS(f"ObReferenceObjectByHandle_{ret_addr}", self.state.arch.bits)
         self.state.memory.store(Object, object, self.state.arch.bytes, endness=self.state.arch.memory_endness, disable_actions=True, inspect=False)
+
+        # With a tainted handle referencing a process, we propagate the taint to the newly created "object"
+        if (globals.star_ps_process_type is not None) and self.state.solver.eval(ObjectType == globals.star_ps_process_type) and utils.tainted_buffer(Handle):
+            self.state.globals['tainted_eprocess'] += (str(object), )
         return 0
 
 class HookMmMapIoSpace(angr.SimProcedure):
