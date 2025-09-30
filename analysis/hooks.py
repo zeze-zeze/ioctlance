@@ -321,18 +321,6 @@ class HookMmAllocateContiguousMemorySpecifyCache(angr.SimProcedure):
         else:
             return utils.next_base_addr()
 
-class HookObReferenceObjectByHandle(angr.SimProcedure):
-    # Trace the handle opened by ObReferenceObjectByHandle.
-    def run(self, Handle, DesiredAccess, ObjectType, AccessMode, Object, HandleInformation):
-        ret_addr = hex(self.state.callstack.ret_addr)
-        object = claripy.BVS(f"ObReferenceObjectByHandle_{ret_addr}", self.state.arch.bits)
-        self.state.memory.store(Object, object, self.state.arch.bytes, endness=self.state.arch.memory_endness, disable_actions=True, inspect=False)
-
-        # With a tainted handle referencing a process, we propagate the taint to the newly created "object"
-        if (globals.star_ps_process_type is not None) and self.state.solver.eval(ObjectType == globals.star_ps_process_type) and utils.tainted_buffer(Handle):
-            self.state.globals['tainted_eprocess'] += (str(object), )
-        return 0
-
 class HookMmMapIoSpace(angr.SimProcedure):
     def run(self, PhysicalAddress, NumberOfBytes, MEMORY_CACHING_TYPE):
         if globals.phase == 2:
@@ -553,4 +541,95 @@ class HookZwQueryValueKey(angr.SimProcedure):
 class HookNdisRegisterProtocolDriver(angr.SimProcedure):
     def run(self, ProtocolDriverContext, ProtocolCharacteristics, NdisProtocolHandle):
         self.state.memory.store(NdisProtocolHandle, 0x87, self.state.arch.bytes, endness=self.state.arch.memory_endness, disable_actions=True, inspect=False)
+        return 0
+    
+class HookObCloseHandle(angr.SimProcedure):
+    def run(self, Handle, PreviousMode):
+        if (globals.phase != 2) or (not utils.tainted_buffer(Handle)):
+            return 0
+        ret_addr = hex(self.state.callstack.ret_addr)
+
+        attached_process = self.state.globals['process_context_changing'] != ()
+        vuln_title = "ObCloseHandle - Controllable handle in different process context" if attached_process else "ObCloseHandle - Controllable handle"
+        vuln_description = "ObCloseHandle - Tainted handle in different process context" if attached_process else "ObCloseHandle - Tainted handle"
+        vuln_parameters = {'Handle': str(Handle)}
+        vuln_others = {'return address': ret_addr}
+        list_of_constraints = list()
+
+        # Process explorer specific check
+        for tainted_object in self.state.globals['tainted_objects']:
+            for constraint in self.state.solver.constraints:
+                if constraint.op != '__eq__':
+                    continue
+                if any(v in tainted_object for v in constraint.variables):
+                    list_of_constraints.append(str(constraint))
+
+        if len(list_of_constraints) > 0:
+            vuln_others['obj_constraints'] = list_of_constraints
+
+        utils.print_vuln(vuln_title, vuln_description, self.state, vuln_parameters, vuln_others)
+        return 0
+
+class HookKeStackAttachProcess(angr.SimProcedure):
+    def run(self, PROCESS, ApcState):
+        if globals.phase != 2:
+            return 0
+        
+        ret_addr = hex(self.state.callstack.ret_addr)
+
+        # Check if the eprocess is tainted (from the PsLookupProcessByProcessId)
+        if ('tainted_eprocess' in self.state.globals) and (str(PROCESS) in self.state.globals['tainted_eprocess']):
+            # The "process" element was tainted, so we consider it tainted also in this function.
+            # In addition, we can consider that the process context is mutating by creating a new global variable.
+            utils.print_vuln(
+                'KeStackAttachProcess - Tainted EPROCESS detected', 
+                'KeStackAttachProcess: EPROCESS is tainted and we are mutating the process context',
+                self.state, 
+                {'PROCESS': str(PROCESS)}, 
+                {'return address': ret_addr}
+            )
+        
+            # Add the tainted PROCESS to the global variable to track changes in the process context.
+            self.state.globals['process_context_changing'] += (str(PROCESS), )
+
+        # Create a symbolic variable for propagation (out parameter)
+        apcstate = claripy.BVS(f'KeStackAttachProcess_{ret_addr}', self.state.arch.bits)
+        self.state.memory.store(ApcState, apcstate, self.state.arch.bytes, endness=self.state.arch.memory_endness, disable_actions=True, inspect=False)
+
+        return 0
+
+class HookObReferenceObjectByHandle(angr.SimProcedure):
+    def run(self, Handle, DesiredAccess, ObjectType, AccessMode, Object, HandleInformation):
+        if (globals.phase != 2):
+            return 0
+        ret_addr = hex(self.state.callstack.ret_addr)
+
+        # Create a symbolic variable for propagation (out parameter)
+        symb_object = claripy.BVS(f'ObReferenceObjectByHandle_{ret_addr}', self.state.arch.bits)
+        self.state.memory.store(Object, symb_object, self.state.arch.bytes, endness=self.state.arch.memory_endness, disable_actions=True, inspect=False)
+
+        # Nothing more to do if Handle is not symbolic or is not tainted
+        if (not self.state.solver.symbolic(Handle)) or (not utils.tainted_buffer(Handle)):
+            return 0
+
+        # We mark the object as tainted
+        self.state.globals['tainted_objects'] += (str(symb_object), )
+
+        # We ignore events
+        is_event_handle = (globals.star_ps_ex_event_type is not None) and (str(ObjectType) == str(globals.star_ps_ex_event_type))
+        if is_event_handle:
+            return
+
+        # Check if the object is a process and mark it as tainted
+        is_process_handle = (globals.star_ps_process_type is not None) and (str(ObjectType) == str(globals.star_ps_process_type))
+        if is_process_handle:
+            self.state.globals['tainted_eprocess'] += (str(symb_object), )
+
+        attached_process = self.state.globals['process_context_changing'] != ()
+        vuln_title = "ObReferenceObjectByHandle - Controllable handle in different process context" if attached_process else "ObReferenceObjectByHandle - Controllable handle"
+        vuln_description = "ObReferenceObjectByHandle - Tainted handle in different process context" if attached_process else "ObReferenceObjectByHandle - Tainted handle"
+        vuln_parameters = {'Handle': str(Handle), 'Object': str(symb_object)}
+        vuln_others = {'return address': ret_addr}
+
+        utils.print_vuln(vuln_title, vuln_description, self.state, vuln_parameters, vuln_others)
         return 0

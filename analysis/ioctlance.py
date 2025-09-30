@@ -160,6 +160,8 @@ def hunting(driver_base_state: angr.SimState, ioctl_handler_addr):
     driver_base_state.globals['tainted_MmIsAddressValid'] = ()
     driver_base_state.globals['tainted_eprocess'] = ()
     driver_base_state.globals['tainted_handles'] = ()
+    driver_base_state.globals['tainted_objects'] = ()
+    driver_base_state.globals['process_context_changing'] = ()
     
     state: angr.SimState = globals.proj.factory.call_state(ioctl_handler_addr, device_object_addr, globals.irp_addr, cc=globals.mycc,
                                                    base_state=driver_base_state)
@@ -461,6 +463,9 @@ def analyze_driver(driver_path):
     globals.proj.hook_symbol('IoCreateFile', hooks.HookIoCreateFile(cc=globals.mycc))
     globals.proj.hook_symbol('IoCreateFileEx', hooks.HookIoCreateFileEx(cc=globals.mycc))
     globals.proj.hook_symbol('IoCreateFileSpecifyDeviceObjectHint', hooks.HookIoCreateFileSpecifyDeviceObjectHint(cc=globals.mycc))
+    globals.proj.hook_symbol('ObCloseHandle', hooks.HookObCloseHandle(cc=globals.mycc))
+    globals.proj.hook_symbol('KeStackAttachProcess', hooks.HookKeStackAttachProcess(cc=globals.mycc))
+
 
     find_targets(driver_path)
 
