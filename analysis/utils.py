@@ -121,31 +121,24 @@ def find_utf_16le_str(data, string):
 
     return device_name
 
-def find_device_names(path):
-    # Get the device name by parsing the entire driver file.
-    globals.basic_info['DeviceName'] = []
-    with open(path, 'rb') as f:
-        data = f.read()
-        names = []
-        for dd in globals.DOS_DEVICES:
-            names.append(find_utf_16le_str(data, dd))
+def read_buffer_from_unicode_string(state, unicode_string_pointer):
+    us = state.mem[unicode_string_pointer].struct._UNICODE_STRING
+    length_expr = us.Length.resolved
+    max_length_expr = us.MaximumLength.resolved
+    buffer_ptr_expr = us.Buffer.resolved
 
-        if len(names) == 0:
-            print_error('device name not found')
-        else:
-            name = []
-            for i in names:
-                if i:
-                    for j in i[::-1]:
-                        if j != '\\':
-                            name.append(j)
-                        else:
-                            name.reverse()
-                            break
+    length = state.solver.eval(length_expr)
+    max_length = state.solver.eval(max_length_expr)
+    buffer_addr = state.solver.eval(buffer_ptr_expr)
 
-                    dd_name = '\\\\.\\' + ''.join(name)
-                    globals.basic_info['DeviceName'].append(dd_name)
-                    print_info(f'device name: {dd_name}')
+    if (length == 0) or (max_length == 0):
+        return None
+    
+    raw_data = state.memory.load(buffer_addr, length, disable_actions=True, inspect=False)
+    device_name_str = state.solver.eval(raw_data, cast_to=bytes).decode("utf-16le", errors="ignore")
+
+    return device_name_str.strip() if device_name_str is not None else None
+
 
 def find_driver_type():
     # Check if the driver is a WDM driver.
@@ -170,4 +163,6 @@ def resolve_import_symbol(loader: cle.loader.Loader, symbol_name: str) -> Option
        result = resolve_import_symbol_in_object(obj, symbol_name)
        if result:
             return result
+    
+    print(f"[!] Symbol '{symbol_name}' not found in any loaded object.")
     return None

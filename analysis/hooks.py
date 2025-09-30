@@ -3,6 +3,8 @@ import claripy
 import utils
 import globals
 import ipdb
+import re
+import copy
 
 class HookIoStartPacket(angr.SimProcedure):
     # Call DriverStartIo when IoStartPacket is called.
@@ -28,10 +30,33 @@ class HookIoCreateDevice(angr.SimProcedure):
         self.state.memory.store(new_device_extension_addr, device_extension, size, disable_actions=True, inspect=False)
         self.state.mem[devobjaddr].DEVICE_OBJECT.DeviceExtension = new_device_extension_addr
 
+
+        # Retrieve the device name.
+        device_name_str = utils.read_buffer_from_unicode_string(self.state, DeviceName)
+        if (device_name_str != "") and (device_name_str != None):
+            utils.print_info(f'device name: {device_name_str}')
+
+            if "DeviceName" in globals.basic_info:
+                assert((globals.basic_info["DeviceName"] is not None) and (globals.basic_info["DeviceName"] != ""))
+            else:
+                globals.basic_info["DeviceName"] = device_name_str
         return 0
 
 class HookIoCreateSymbolicLink(angr.SimProcedure):
     def run(self, SymbolicLinkName, DeviceName):
+        # Retrieve the device name.
+        device_name_str = utils.read_buffer_from_unicode_string(self.state, DeviceName)
+        if (device_name_str == "") or (device_name_str is None):
+            return 0
+
+        symbolic_link_str = utils.read_buffer_from_unicode_string(self.state, SymbolicLinkName)
+        if (symbolic_link_str != "") and (symbolic_link_str != None):
+            utils.print_info(f'Symbolic link \"{symbolic_link_str}\" to \"{device_name_str}\"')
+
+            if "SymbolicLink" in globals.basic_info:
+                assert((globals.basic_info["SymbolicLink"] is not None) and (globals.basic_info["SymbolicLink"] != ""))
+            else:
+                globals.basic_info["SymbolicLink"] = symbolic_link_str
         return 0
     
 class HookIoIs32bitProcess(angr.SimProcedure):
@@ -137,20 +162,24 @@ class HookDoNothing(angr.SimProcedure):
         return 0
 
 class HookMmGetSystemRoutineAddress(angr.SimProcedure):
-    # Return the function address acquired by MmGetSystemRoutineAddress.
     def run(self, SystemRoutineName):
         try:
-            SystemRoutineName_wstring = self.state.mem[self.state.mem[SystemRoutineName].struct._UNICODE_STRING.Buffer.resolved].wstring.resolved
+            wstring_addr = self.state.mem[SystemRoutineName].struct._UNICODE_STRING.Buffer.resolved
+            SystemRoutineName_wstring = self.state.mem[wstring_addr].wstring.concrete
         except:
-            SystemRoutineName_wstring = claripy.BVV(0, self.state.arch.bits)
+            SystemRoutineName_wstring = ""
 
-        ZwQueryInformationProcess_wstring = int('ZwQueryInformationProcess'.encode('utf-16')[2:].hex(), 16)
-        if self.state.solver.eval(ZwQueryInformationProcess_wstring == SystemRoutineName_wstring):
-            addr = utils.next_base_addr()
-            globals.proj.hook(addr, HookZwQueryInformationProcess(cc=globals.mycc))
-            return addr
-        else:
-            return globals.DO_NOTHING
+        hooks = {
+            "ZwQueryInformationProcess": HookZwQueryInformationProcess,
+        }
+
+        for name, proc in hooks.items():
+            if name == SystemRoutineName_wstring:
+                addr = utils.next_base_addr()
+                globals.proj.hook(addr, proc(cc=globals.mycc))
+                return addr
+
+        return globals.DO_NOTHING
     
 class HookFltGetRoutineAddress(angr.SimProcedure):
     # Return the function address acquired by FltGetRoutineAddress.
@@ -162,7 +191,7 @@ class HookProbeForRead(angr.SimProcedure):
     def run(self, Address, Length, Alignment):
         if globals.phase == 2:
             if 'tainted_ProbeForRead' in self.state.globals and utils.tainted_buffer(Address):
-                asts = [i for i in Address.recursive_children_asts]
+                asts = [i for i in Address.children_asts()]
                 target_base = asts[0] if len(asts) > 1 else Address
 
                 ret_addr = hex(self.state.callstack.ret_addr)
@@ -405,15 +434,16 @@ class HookPsLookupProcessByProcessId(angr.SimProcedure):
 class HookObOpenObjectByPointer(angr.SimProcedure):
     def run(self, Object, HandleAttributes, PassedAccessState, DesiredAccess, ObjectType, AccessMode, Handle):
         if globals.phase == 2:
+            ret_addr = hex(self.state.callstack.ret_addr)
+            handle = claripy.BVS(f"ObOpenObjectByPointer_{ret_addr}", self.state.arch.bits)
+            self.state.memory.store(Handle, handle,  self.state.arch.bytes, endness=self.state.arch.memory_endness, disable_actions=True, inspect=False)
+
             # HandleAttributes is not OBJ_FORCE_ACCESS_CHECK.
             tmp_state = self.state.copy()
             tmp_state.solver.add(HandleAttributes & 1024 == 0)
-            handle = claripy.BVS(f"ObReferenceObjectByHandle_{hex(self.state.callstack.ret_addr)}", self.state.arch.bits)
-            self.state.memory.store(Handle, handle,  self.state.arch.bytes, endness=self.state.arch.memory_endness, disable_actions=True, inspect=False)
             # Check if we can control the parameters of ObOpenObjectByPointer.
-            if tmp_state.satisfiable() and str(Object) in self.state.globals['tainted_eprocess']:
+            if tmp_state.satisfiable() and ((str(Object) in self.state.globals['tainted_eprocess']) or utils.tainted_buffer(Object)):
                 self.state.globals['tainted_handles'] += (str(handle), )
-                ret_addr = hex(self.state.callstack.ret_addr)
                 utils.print_vuln('controllable process handle', 'ObOpenObjectByPointer - Object controllable', self.state, {'Object': str(Object), 'Handle': str(Handle)}, {'return address': ret_addr})
         return 0
 
@@ -426,11 +456,11 @@ class HookZwTerminateProcess(angr.SimProcedure):
 class HookMemcpy(angr.SimProcedure):
     def run(self, dest, src, size):
         ret_addr = hex(self.state.callstack.ret_addr)
-        dest_asts = [i for i in dest.recursive_children_asts]
+        dest_asts = [i for i in dest.children_asts()]
         dest_base = dest_asts[0] if len(dest_asts) > 1 else dest
         dest_vars = dest.variables
 
-        src_asts = [i for i in src.recursive_children_asts]
+        src_asts = [i for i in src.children_asts()]
         src_base = src_asts[0] if len(src_asts) > 1 else src
         src_vars = src.variables
 

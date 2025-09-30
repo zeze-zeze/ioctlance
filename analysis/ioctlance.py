@@ -376,6 +376,7 @@ def analyze_driver(driver_path):
     except:
         utils.print_error(f'cannot analyze {driver_path}')
         return
+    utils.print_info(f'Driver loaded @ {hex(globals.proj.loader.main_object.min_addr)}')
 
     # Return 'wdm' if it is a WDM driver.
     driver_type = utils.find_driver_type()
@@ -480,7 +481,6 @@ def analyze_driver(driver_path):
 
     if driver_type == 'wdm':
         # Parse the driver file and find device name by searching pattern.
-        utils.find_device_names(driver_path)
         start_memory = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
         start_time = time.time()
 
