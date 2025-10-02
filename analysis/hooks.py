@@ -2,9 +2,6 @@ import angr
 import claripy
 import utils
 import globals
-import ipdb
-import re
-import copy
 
 class HookIoStartPacket(angr.SimProcedure):
     # Call DriverStartIo when IoStartPacket is called.
@@ -30,7 +27,6 @@ class HookIoCreateDevice(angr.SimProcedure):
         self.state.memory.store(new_device_extension_addr, device_extension, size, disable_actions=True, inspect=False)
         self.state.mem[devobjaddr].DEVICE_OBJECT.DeviceExtension = new_device_extension_addr
 
-
         # Retrieve the device name.
         device_name_str = utils.read_buffer_from_unicode_string(self.state, DeviceName)
         if (device_name_str != "") and (device_name_str != None):
@@ -44,7 +40,7 @@ class HookIoCreateDevice(angr.SimProcedure):
 
 class HookIoCreateSymbolicLink(angr.SimProcedure):
     def run(self, SymbolicLinkName, DeviceName):
-        # Retrieve the device name.
+        # Retrieve the symbolic link name.
         device_name_str = utils.read_buffer_from_unicode_string(self.state, DeviceName)
         if (device_name_str == "") or (device_name_str is None):
             return 0

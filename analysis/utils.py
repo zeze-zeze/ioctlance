@@ -164,5 +164,4 @@ def resolve_import_symbol(loader: cle.loader.Loader, symbol_name: str) -> Option
        if result:
             return result
     
-    print(f"[!] Symbol '{symbol_name}' not found in any loaded object.")
     return None
