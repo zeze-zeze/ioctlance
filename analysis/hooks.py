@@ -616,37 +616,13 @@ class HookKeStackAttachProcess(angr.SimProcedure):
         return 0
 
 class HookObReferenceObjectByHandle(angr.SimProcedure):
+    # Trace the handle opened by ObReferenceObjectByHandle.
     def run(self, Handle, DesiredAccess, ObjectType, AccessMode, Object, HandleInformation):
-        if (globals.phase != 2):
-            return 0
         ret_addr = hex(self.state.callstack.ret_addr)
+        object = claripy.BVS(f"ObReferenceObjectByHandle_{ret_addr}", self.state.arch.bits)
+        self.state.memory.store(Object, object, self.state.arch.bytes, endness=self.state.arch.memory_endness, disable_actions=True, inspect=False)
 
-        # Create a symbolic variable for propagation (out parameter)
-        symb_object = claripy.BVS(f'ObReferenceObjectByHandle_{ret_addr}', self.state.arch.bits)
-        self.state.memory.store(Object, symb_object, self.state.arch.bytes, endness=self.state.arch.memory_endness, disable_actions=True, inspect=False)
-
-        # Nothing more to do if Handle is not symbolic or is not tainted
-        if (not self.state.solver.symbolic(Handle)) or (not utils.tainted_buffer(Handle)):
-            return 0
-
-        # We mark the object as tainted
-        self.state.globals['tainted_objects'] += (str(symb_object), )
-
-        # We ignore events
-        is_event_handle = (globals.star_ps_ex_event_type is not None) and (str(ObjectType) == str(globals.star_ps_ex_event_type))
-        if is_event_handle:
-            return
-
-        # Check if the object is a process and mark it as tainted
-        is_process_handle = (globals.star_ps_process_type is not None) and (str(ObjectType) == str(globals.star_ps_process_type))
-        if is_process_handle:
-            self.state.globals['tainted_eprocess'] += (str(symb_object), )
-
-        attached_process = self.state.globals['process_context_changing'] != ()
-        vuln_title = "ObReferenceObjectByHandle - Controllable handle in different process context" if attached_process else "ObReferenceObjectByHandle - Controllable handle"
-        vuln_description = "ObReferenceObjectByHandle - Tainted handle in different process context" if attached_process else "ObReferenceObjectByHandle - Tainted handle"
-        vuln_parameters = {'Handle': str(Handle), 'Object': str(symb_object)}
-        vuln_others = {'return address': ret_addr}
-
-        utils.print_vuln(vuln_title, vuln_description, self.state, vuln_parameters, vuln_others)
+        # With a tainted handle referencing a process, we propagate the taint to the newly created "object"
+        if (globals.star_ps_process_type is not None) and self.state.solver.eval(ObjectType == globals.star_ps_process_type) and utils.tainted_buffer(Handle):
+            self.state.globals['tainted_eprocess'] += (str(object), )
         return 0
