@@ -31,11 +31,10 @@ class HookIoCreateDevice(angr.SimProcedure):
         device_name_str = utils.read_buffer_from_unicode_string(self.state, DeviceName)
         if (device_name_str != "") and (device_name_str != None):
             utils.print_info(f'device name: {device_name_str}')
-
-            if "DeviceName" in globals.basic_info:
-                assert((globals.basic_info["DeviceName"] is not None) and (globals.basic_info["DeviceName"] != ""))
-            else:
-                globals.basic_info["DeviceName"] = device_name_str
+            if "DeviceName" not in globals.basic_info:
+                globals.basic_info["DeviceName"] = []
+            
+            globals.basic_info["DeviceName"].append(device_name_str)
         return 0
 
 class HookIoCreateSymbolicLink(angr.SimProcedure):
@@ -49,10 +48,10 @@ class HookIoCreateSymbolicLink(angr.SimProcedure):
         if (symbolic_link_str != "") and (symbolic_link_str != None):
             utils.print_info(f'Symbolic link \"{symbolic_link_str}\" to \"{device_name_str}\"')
 
-            if "SymbolicLink" in globals.basic_info:
-                assert((globals.basic_info["SymbolicLink"] is not None) and (globals.basic_info["SymbolicLink"] != ""))
-            else:
-                globals.basic_info["SymbolicLink"] = symbolic_link_str
+            if "SymbolicLink" not in globals.basic_info:
+                globals.basic_info["SymbolicLink"] = []
+
+            globals.basic_info["SymbolicLink"].append(symbolic_link_str)
         return 0
     
 class HookIoIs32bitProcess(angr.SimProcedure):
@@ -607,17 +606,9 @@ class HookKeStackAttachProcess(angr.SimProcedure):
         if ('tainted_eprocess' in self.state.globals) and (str(PROCESS) in self.state.globals['tainted_eprocess']):
             # The "process" element was tainted, so we consider it tainted also in this function.
             # In addition, we can consider that the process context is mutating by creating a new global variable.
-            utils.print_vuln(
-                'KeStackAttachProcess - Tainted EPROCESS detected', 
-                'KeStackAttachProcess: EPROCESS is tainted and we are mutating the process context',
-                self.state, 
-                {'PROCESS': str(PROCESS)}, 
-                {'return address': ret_addr}
-            )
-        
-            # Add the tainted PROCESS to the global variable to track changes in the process context.
+            # Adding the tainted PROCESS to the global variable to track changes in the process context.
             self.state.globals['process_context_changing'] += (str(PROCESS), )
-
+        
         # Create a symbolic variable for propagation (out parameter)
         apcstate = claripy.BVS(f'KeStackAttachProcess_{ret_addr}', self.state.arch.bits)
         self.state.memory.store(ApcState, apcstate, self.state.arch.bytes, endness=self.state.arch.memory_endness, disable_actions=True, inspect=False)

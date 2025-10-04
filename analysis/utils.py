@@ -139,7 +139,6 @@ def read_buffer_from_unicode_string(state, unicode_string_pointer):
 
     return device_name_str.strip() if device_name_str is not None else None
 
-
 def find_driver_type():
     # Check if the driver is a WDM driver.
     driver_type = ''
