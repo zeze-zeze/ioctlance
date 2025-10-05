@@ -29,11 +29,14 @@ class HookIoCreateDevice(angr.SimProcedure):
 
         # Retrieve the device name.
         device_name_str = utils.read_buffer_from_unicode_string(self.state, DeviceName)
-        if (device_name_str != "") and (device_name_str != None):
-            utils.print_info(f'device name: {device_name_str}')
-            if "DeviceName" not in globals.basic_info:
-                globals.basic_info["DeviceName"] = []
-            
+        if (device_name_str == "") and (device_name_str == None):
+            return 0
+        
+        utils.print_info(f'device name: {device_name_str}')
+        if "DeviceName" not in globals.basic_info:
+            globals.basic_info["DeviceName"] = []
+        
+        if(device_name_str not in globals.basic_info["DeviceName"]):
             globals.basic_info["DeviceName"].append(device_name_str)
         return 0
 
@@ -43,14 +46,17 @@ class HookIoCreateSymbolicLink(angr.SimProcedure):
         device_name_str = utils.read_buffer_from_unicode_string(self.state, DeviceName)
         if (device_name_str == "") or (device_name_str is None):
             return 0
-
+        
         symbolic_link_str = utils.read_buffer_from_unicode_string(self.state, SymbolicLinkName)
-        if (symbolic_link_str != "") and (symbolic_link_str != None):
-            utils.print_info(f'Symbolic link \"{symbolic_link_str}\" to \"{device_name_str}\"')
+        if (symbolic_link_str == "") and (symbolic_link_str == None):
+            return 0
+        
+        utils.print_info(f'Symbolic link \"{symbolic_link_str}\" to \"{device_name_str}\"')
 
-            if "SymbolicLink" not in globals.basic_info:
-                globals.basic_info["SymbolicLink"] = []
+        if "SymbolicLink" not in globals.basic_info:
+            globals.basic_info["SymbolicLink"] = []
 
+        if(symbolic_link_str not in globals.basic_info["SymbolicLink"]):
             globals.basic_info["SymbolicLink"].append(symbolic_link_str)
         return 0
     
@@ -575,7 +581,7 @@ class HookObCloseHandle(angr.SimProcedure):
         ret_addr = hex(self.state.callstack.ret_addr)
 
         attached_process = self.state.globals['process_context_changing'] != ()
-        vuln_title = "ObCloseHandle - Controllable handle in different process context" if attached_process else "ObCloseHandle - Controllable handle"
+        vuln_title = "ObCloseHandle - Close controllable handle in different process context" if attached_process else "ObCloseHandle - Controllable handle"
         vuln_description = "ObCloseHandle - Tainted handle in different process context" if attached_process else "ObCloseHandle - Tainted handle"
         vuln_parameters = {'Handle': str(Handle)}
         vuln_others = {'return address': ret_addr}
@@ -607,7 +613,7 @@ class HookKeStackAttachProcess(angr.SimProcedure):
             # The "process" element was tainted, so we consider it tainted also in this function.
             # In addition, we can consider that the process context is mutating by creating a new global variable.
             # Adding the tainted PROCESS to the global variable to track changes in the process context.
-            self.state.globals['process_context_changing'] += (str(PROCESS), )
+            self.state.globals['tainted_process_context_changing'] += (str(PROCESS), )
         
         # Create a symbolic variable for propagation (out parameter)
         apcstate = claripy.BVS(f'KeStackAttachProcess_{ret_addr}', self.state.arch.bits)
