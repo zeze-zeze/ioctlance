@@ -1,4 +1,6 @@
 .vs
 x64
+.DS_Store
+**/.DS_Store
 Release
 __pycache__

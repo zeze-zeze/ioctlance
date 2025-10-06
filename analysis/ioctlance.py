@@ -160,6 +160,8 @@ def hunting(driver_base_state: angr.SimState, ioctl_handler_addr):
     driver_base_state.globals['tainted_MmIsAddressValid'] = ()
     driver_base_state.globals['tainted_eprocess'] = ()
     driver_base_state.globals['tainted_handles'] = ()
+    driver_base_state.globals['tainted_objects'] = ()
+    driver_base_state.globals['tainted_process_context_changing'] = ()
     
     state: angr.SimState = globals.proj.factory.call_state(ioctl_handler_addr, device_object_addr, globals.irp_addr, cc=globals.mycc,
                                                    base_state=driver_base_state)
@@ -374,6 +376,7 @@ def analyze_driver(driver_path):
     except:
         utils.print_error(f'cannot analyze {driver_path}')
         return
+    utils.print_info(f'Driver loaded @ {hex(globals.proj.loader.main_object.min_addr)}')
 
     # Return 'wdm' if it is a WDM driver.
     driver_type = utils.find_driver_type()
@@ -461,6 +464,9 @@ def analyze_driver(driver_path):
     globals.proj.hook_symbol('IoCreateFile', hooks.HookIoCreateFile(cc=globals.mycc))
     globals.proj.hook_symbol('IoCreateFileEx', hooks.HookIoCreateFileEx(cc=globals.mycc))
     globals.proj.hook_symbol('IoCreateFileSpecifyDeviceObjectHint', hooks.HookIoCreateFileSpecifyDeviceObjectHint(cc=globals.mycc))
+    globals.proj.hook_symbol('ObCloseHandle', hooks.HookObCloseHandle(cc=globals.mycc))
+    globals.proj.hook_symbol('KeStackAttachProcess', hooks.HookKeStackAttachProcess(cc=globals.mycc))
+
 
     find_targets(driver_path)
 
@@ -475,7 +481,6 @@ def analyze_driver(driver_path):
 
     if driver_type == 'wdm':
         # Parse the driver file and find device name by searching pattern.
-        utils.find_device_names(driver_path)
         start_memory = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
         start_time = time.time()
 

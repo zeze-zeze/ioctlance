@@ -24,7 +24,7 @@ def b_mem_read(state):
     # Iterate all target buffers.
     for target in globals.NPD_TARGETS:
         if target in str(state.inspect.mem_read_address):
-            asts = [i for i in state.inspect.mem_read_address.recursive_children_asts]
+            asts = [i for i in state.inspect.mem_read_address.children_asts()]
             target_base = asts[0] if len(asts) > 1 else state.inspect.mem_read_address
             vars = state.inspect.mem_read_address.variables
 
@@ -80,7 +80,7 @@ def b_mem_write(state):
     # Iterate all target buffers.
     for target in globals.NPD_TARGETS:
         if target in str(state.inspect.mem_write_address):
-            asts = [i for i in state.inspect.mem_write_address.recursive_children_asts]
+            asts = [i for i in state.inspect.mem_write_address.children_asts()]
             target_base = asts[0] if len(asts) > 1 else state.inspect.mem_write_address
             vars = state.inspect.mem_write_address.variables
 
