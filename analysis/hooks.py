@@ -580,9 +580,13 @@ class HookObCloseHandle(angr.SimProcedure):
             return 0
         ret_addr = hex(self.state.callstack.ret_addr)
 
-        attached_process = self.state.globals['process_context_changing'] != ()
-        vuln_title = "ObCloseHandle - Close controllable handle in different process context" if attached_process else "ObCloseHandle - Controllable handle"
-        vuln_description = "ObCloseHandle - Tainted handle in different process context" if attached_process else "ObCloseHandle - Tainted handle"
+        attached_process = self.state.globals['tainted_process_context_changing'] != ()
+
+        if not attached_process:
+            return 0
+        
+        vuln_title = "ObCloseHandle - Close controllable handle in different process context"
+        vuln_description = "ObCloseHandle - Tainted handle in different process context"
         vuln_parameters = {'Handle': str(Handle)}
         vuln_others = {'return address': ret_addr}
         list_of_constraints = list()

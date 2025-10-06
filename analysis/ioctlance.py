@@ -161,7 +161,7 @@ def hunting(driver_base_state: angr.SimState, ioctl_handler_addr):
     driver_base_state.globals['tainted_eprocess'] = ()
     driver_base_state.globals['tainted_handles'] = ()
     driver_base_state.globals['tainted_objects'] = ()
-    driver_base_state.globals['process_context_changing'] = ()
+    driver_base_state.globals['tainted_process_context_changing'] = ()
     
     state: angr.SimState = globals.proj.factory.call_state(ioctl_handler_addr, device_object_addr, globals.irp_addr, cc=globals.mycc,
                                                    base_state=driver_base_state)
