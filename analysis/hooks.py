@@ -191,32 +191,22 @@ class HookProbeForRead(angr.SimProcedure):
     # Tag the tainted buffer that is validated with ProbeForRead.
     def run(self, Address, Length, Alignment):
         if globals.phase == 2:
-            if 'tainted_ProbeForRead' in self.state.globals and utils.tainted_buffer(Address):
-                asts = [i for i in Address.children_asts()]
-                target_base = asts[0] if len(asts) > 1 else Address
-
-                ret_addr = hex(self.state.callstack.ret_addr)
-                self.state.globals['tainted_ProbeForRead'] += (str(target_base), )
+            if ('tainted_ProbeForRead' in self.state.globals) and utils.user_memory_address(self.state, Address):
+                self.state.globals['tainted_ProbeForRead'] += (str(Address), )
 
 class HookProbeForWrite(angr.SimProcedure):
     # Tag the tainted buffer that is validated with ProbeForWrite.
     def run(self, Address, Length, Alignment):
         if globals.phase == 2:
-            if 'tainted_ProbeForWrite' in self.state.globals and utils.tainted_buffer(Address):
-                asts = [i for i in Address.recursive_children_asts]
-                target_base = asts[0] if len(asts) > 1 else Address
-                ret_addr = hex(self.state.callstack.ret_addr)
-                self.state.globals['tainted_ProbeForWrite'] += (str(target_base), )
+            if ('tainted_ProbeForWrite' in self.state.globals) and utils.user_memory_address(self.state, Address):
+                self.state.globals['tainted_ProbeForWrite'] += (str(Address), )
 
 class HookMmIsAddressValid(angr.SimProcedure):
     # Tag the tainted buffer that is validated with MmIsAddressValid.
     def run(self, VirtualAddress):
         if globals.phase == 2:
-            if 'tainted_MmIsAddressValid' in self.state.globals and utils.tainted_buffer(VirtualAddress):
-                asts = [i for i in VirtualAddress.recursive_children_asts]
-                target_base = asts[0] if len(asts) > 1 else VirtualAddress
-                ret_addr = hex(self.state.callstack.ret_addr)
-                self.state.globals['tainted_MmIsAddressValid'] += (str(target_base), )
+            if ('tainted_MmIsAddressValid' in self.state.globals) and utils.user_memory_address(self.state, VirtualAddress):
+                self.state.globals['tainted_MmIsAddressValid'] += (str(VirtualAddress), )
         return 1
 
 class HookZwOpenSection(angr.SimProcedure):

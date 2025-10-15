@@ -1,4 +1,6 @@
 import collections
+import angr
+import claripy
 import cle
 from cle.backends.pe.relocation.generic import DllImport
 from typing import Optional
@@ -7,10 +9,10 @@ import sys
 import json
 
 def tainted_buffer(s):
-    # The tainted buffer contains only one symbolic variable.
-    if len(s.variables) != 1:
+    # Buffer must be a BitVector and must contain only one symbolic variable
+    if (not isinstance(s, claripy.ast.bv.BV)) or (len(s.variables) != 1):
         return ''
-    
+        
     # Check the tainted symbolic variable.
     s = str(s)
     if 'SystemBuffer' in s:
@@ -25,6 +27,99 @@ def tainted_buffer(s):
         return 'OutputBufferLength'
     else:
         return ''
+
+def user_memory_address(state: angr.SimState, address) -> bool:
+    ''' Returns true if a memory address is contained in a user-provided buffer '''
+    addr_str = str(address)
+    
+    # Address must evaluate to one symbolic variable.
+    if (not isinstance(address, claripy.ast.bv.BV)) or (len(address.variables) != 1):
+        return False
+    
+    addr_base = get_base_address(address)
+    # Base address must be tainted and must be a dereference
+    if  ((not tainted_buffer(addr_base)) or
+        (len(addr_base.args) <= 0) or
+        (not isinstance(addr_base.args[0], str)) or
+        (not addr_base.args[0].startswith("*<"))):
+        return False
+    
+    return True
+
+def tainted_memory_address(state: angr.SimState, address) -> bool:
+    ''' Returns true if a memory address is user-provided and has not been validated through functions like ProbeForWrite, ProbeForWrite, MmIsAddressValid '''
+    addr_str = str(address)
+    
+    # Address must evaluate to one symbolic variable.
+    if not user_memory_address(state, address):
+        return False
+    
+    # Let's just check if the address has not been probed
+    if (addr_str in state.globals['tainted_ProbeForWrite']) or  (addr_str in state.globals['tainted_ProbeForRead']) or (addr_str in state.globals['tainted_MmIsAddressValid']):
+        return False
+
+    return True
+
+def get_base_address(address):
+    if not isinstance(address, claripy.ast.bv.BV):
+        return address
+    else:
+        symbolic_leafs = [i for i in address.leaf_asts() if i.symbolic]
+        return symbolic_leafs[0] if len(symbolic_leafs) == 1 else address
+    
+def symbolyze_buffer(state: angr.SimState, symb_address: claripy.ast.bv.BV):
+    symb_address_str = str(symb_address)
+    if symb_address_str not in state.globals:
+        addr = next_base_addr()
+        tmp_state = state.copy()
+        tmp_state.solver.add(symb_address == addr)
+        if not tmp_state.satisfiable():
+            return
+
+        state.globals[symb_address_str] = True
+        mem = claripy.BVS(f'*{symb_address_str}', 8 * 0x200).reversed
+        
+        state.solver.add(symb_address == addr)
+        state.memory.store(addr, mem, 0x200, disable_actions=True, inspect=False)
+
+def check_npd_vuln(state: angr.SimState, address, write: bool):
+    '''Checks if a specific address in a specific state is a Null Pointer Dereference target '''
+
+    address_str = str(address)
+    # Only checks for NPD targets in top-level buffer pointers
+    address_is_npd_target = any(target in address_str for target in globals.NPD_TARGETS) and ('*' not in address_str)
+    if not address_is_npd_target:
+        return
+    
+    tmp_state = state.copy()
+    tmp_state.solver.add(address == 0)
+    if not tmp_state.satisfiable():
+        return
+    
+    operation = "write" if write else "read"
+    operation_other = "write to" if write else "read from"
+    if tainted_buffer(address):
+        print_vuln('null pointer dereference - input buffer', f'{operation} input buffer', state, {}, {operation_other: address_str})
+    else:
+        print_vuln('null pointer dereference - allocated memory', f'{operation} allocated memory', state, {}, {operation_other: address_str})
+
+def check_arw_vuln(state: angr.SimState, address, write: bool):
+    '''Checks if a specific address in a specific state is an arbitrary read/write target '''
+
+    address_str = str(address)
+    if not tainted_memory_address(state, address):
+        return
+    
+    # Let's try to assign a concrete value to our address to see if 
+    # the constraints are still valid
+    tmp_state = state.copy()
+    tmp_state.solver.add(address == 0x10000)
+    if not tmp_state.satisfiable():
+        return
+
+    operation = "write" if write else "read"
+    operation_other = "write to" if write else "read from"
+    print_vuln('read/write controllable address', operation, tmp_state, {}, {operation_other: address_str})
 
 def analyze_ObjectAttributes(func_name, state, ObjectAttributes):
     ObjectName = state.mem[ObjectAttributes].struct._OBJECT_ATTRIBUTES.ObjectName.resolved
