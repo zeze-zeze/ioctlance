@@ -22,8 +22,9 @@ def b_mem_read(state: angr.SimState):
     target_base = utils.get_base_address(state.inspect.mem_read_address)
     utils.print_debug(f'mem_read {state}, {state.inspect.mem_read_address}, {target_base}, {state.inspect.mem_read_expr}, {state.inspect.mem_read_length}, {state.inspect.mem_read_condition}')
 
-    utils.check_npd_vuln(state, state.inspect.mem_read_address, False)
-    utils.check_arw_vuln(state, state.inspect.mem_read_address, False)
+    # First we check for an ARW vulnerability. If we cannot find one there, we check for NPD
+    if not utils.check_arw_vuln(state, state.inspect.mem_read_address, False):
+        utils.check_npd_vuln(state, state.inspect.mem_read_address, False)
     
     # If we are reading at an offset of a user-provided buffer, we need to one-time create a symbolic space that represents that space
     # In this way we can later see if we are reading from an address obtained by dereferencing this space (a tainted address)
@@ -34,8 +35,9 @@ def b_mem_write(state: angr.SimState):
     target_base = utils.get_base_address(state.inspect.mem_write_address)
     utils.print_debug(f'mem_write {state}, {state.inspect.mem_write_address}, {target_base}, {state.inspect.mem_write_expr}, {state.inspect.mem_write_length}, {state.inspect.mem_write_condition}')
 
-    utils.check_npd_vuln(state, state.inspect.mem_write_address, True)
-    utils.check_arw_vuln(state, state.inspect.mem_write_address, True)
+    # First we check for an ARW vulnerability. If we cannot find one there, we check for NPD
+    if not utils.check_arw_vuln(state, state.inspect.mem_write_address, True):
+        utils.check_npd_vuln(state, state.inspect.mem_write_address, True)
     
     # Same as b_mem_read prologue
     if utils.tainted_buffer(target_base):

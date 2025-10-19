@@ -30,7 +30,6 @@ def tainted_buffer(s):
 
 def user_memory_address(state: angr.SimState, address) -> bool:
     ''' Returns true if a memory address is contained in a user-provided buffer '''
-    addr_str = str(address)
     
     # Address must evaluate to one symbolic variable.
     if (not isinstance(address, claripy.ast.bv.BV)) or (len(address.variables) != 1):
@@ -48,14 +47,19 @@ def user_memory_address(state: angr.SimState, address) -> bool:
 
 def tainted_memory_address(state: angr.SimState, address) -> bool:
     ''' Returns true if a memory address is user-provided and has not been validated through functions like ProbeForWrite, ProbeForWrite, MmIsAddressValid '''
-    addr_str = str(address)
+    base_str = str(get_base_address(address))
     
     # Address must evaluate to one symbolic variable.
-    if not user_memory_address(state, address):
+    # With METHOD_NEITHER ioctl communication, kernel performs no checks on the input buffers. Everything is delegated to the driver
+    tainted_direct_input = 'Type3InputBuffer' in base_str
+    # In the case of METHOD_BUFFERED, the UserBuffer pointer is copied to the IRP but there is a PROBE before
+    tainted_direct_output = ('UserBuffer' in base_str) and state.solver.eval((globals.IoControlCode & 0x3) == 0x3)
+    if (not tainted_direct_input) and(not tainted_direct_output) and not user_memory_address(state, address):
         return False
     
     # Let's just check if the address has not been probed
-    if (addr_str in state.globals['tainted_ProbeForWrite']) or  (addr_str in state.globals['tainted_ProbeForRead']) or (addr_str in state.globals['tainted_MmIsAddressValid']):
+    if ((base_str in state.globals['tainted_ProbeForWrite']) or 
+        (base_str in state.globals['tainted_ProbeForRead'])):
         return False
 
     return True
@@ -103,23 +107,24 @@ def check_npd_vuln(state: angr.SimState, address, write: bool):
     else:
         print_vuln('null pointer dereference - allocated memory', f'{operation} allocated memory', state, {}, {operation_other: address_str})
 
-def check_arw_vuln(state: angr.SimState, address, write: bool):
+def check_arw_vuln(state: angr.SimState, address, write: bool) -> bool:
     '''Checks if a specific address in a specific state is an arbitrary read/write target '''
 
     address_str = str(address)
     if not tainted_memory_address(state, address):
-        return
+        return False
     
     # Let's try to assign a concrete value to our address to see if 
     # the constraints are still valid
     tmp_state = state.copy()
     tmp_state.solver.add(address == 0x10000)
     if not tmp_state.satisfiable():
-        return
+        return False
 
     operation = "write" if write else "read"
     operation_other = "write to" if write else "read from"
     print_vuln('read/write controllable address', operation, tmp_state, {}, {operation_other: address_str})
+    return True
 
 def analyze_ObjectAttributes(func_name, state, ObjectAttributes):
     ObjectName = state.mem[ObjectAttributes].struct._OBJECT_ATTRIBUTES.ObjectName.resolved
