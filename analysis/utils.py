@@ -59,7 +59,8 @@ def tainted_memory_address(state: angr.SimState, address) -> bool:
     
     # Let's just check if the address has not been probed
     if ((base_str in state.globals['tainted_ProbeForWrite']) or 
-        (base_str in state.globals['tainted_ProbeForRead'])):
+        (base_str in state.globals['tainted_ProbeForRead']) or
+        (base_str in state.globals['tainted_MmProbeAndLockPages'])):
         return False
 
     return True

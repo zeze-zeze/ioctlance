@@ -369,6 +369,35 @@ class HookMmMapIoSpaceEx(angr.SimProcedure):
                 utils.print_vuln('map physical memory', 'MmMapIoSpaceEx - PhysicalAddress controllable', self.state, {'PhysicalAddress': str(PhysicalAddress), 'NumberOfBytes': str(NumberOfBytes)}, {'return address': ret_addr})
         
         return utils.next_base_addr()
+    
+class HookIoAllocateMdl(angr.SimProcedure):
+    def run(self, VirtualAddress, Length, SecondaryBuffer, ChargeQuota, Irp):
+        if globals.phase == 2:
+            ret_addr = hex(self.state.callstack.ret_addr)
+            allocated_ptr = claripy.BVS(f"IoAllocateMdl_{ret_addr}", self.state.arch.bits)
+
+            # If the VirtualAddress is tainted, we propagate our taint to the mdl also keeping the 
+            # MDL <-> VA mapping to later be able to retrieve it with functions like MmProbeAndLockPages
+            if utils.tainted_buffer(VirtualAddress):
+                self.state.globals['tainted_mdls'][str(allocated_ptr)] = str(VirtualAddress)
+            return allocated_ptr
+        else:
+            return utils.next_base_addr()
+
+class HookMmProbeAndLockPages(angr.SimProcedure):
+    def run(self, MemoryDescriptorList, AccessMode, Operation):
+        if self.state.solver.eval(AccessMode == 0):
+            # If AccessMode == KernelMode, MmProbeAndLockPages should allow everything
+            return
+        
+        mdl = str(MemoryDescriptorList)
+        if mdl not in self.state.globals['tainted_mdls']:
+            return
+        
+        # Once the MDL has been probed, it is no more tainted. We store the fact that the underlying original
+        # VA is now probed
+        self.state.globals['tainted_MmProbeAndLockPages'] += (self.state.globals['tainted_mdls'][mdl], )
+        del self.state.globals['tainted_mdls']        
 
 class HookHalTranslateBusAddress(angr.SimProcedure):
     def run(self, InterfaceType, BusNumber, BusAddress, AddressSpace, TranslatedAddress):
