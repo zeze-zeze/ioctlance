@@ -256,7 +256,7 @@ class HookRtlInitUnicodeString(angr.SimProcedure):
         self.state.memory.store(new_buffer, string_orig, byte_length, disable_actions=True, inspect=False)
         unistr = self.state.mem[DestinationString].struct._UNICODE_STRING
         self.state.memory.store(DestinationString, claripy.BVV(0, unistr._type.size), unistr._type.size // 8, disable_actions=True, inspect=False)
-        unistr.Length = byte_length - 2
+        unistr.Length = byte_length
         unistr.MaximumLength = byte_length
         unistr.Buffer = new_buffer
 
