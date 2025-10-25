@@ -158,6 +158,8 @@ def hunting(driver_base_state: angr.SimState, ioctl_handler_addr):
     driver_base_state.globals['tainted_ProbeForRead'] = ()
     driver_base_state.globals['tainted_ProbeForWrite'] = ()
     driver_base_state.globals['tainted_MmIsAddressValid'] = ()
+    driver_base_state.globals['tainted_MmProbeAndLockPages'] = ()
+    driver_base_state.globals['tainted_mdls'] = {}
     driver_base_state.globals['tainted_eprocess'] = ()
     driver_base_state.globals['tainted_handles'] = ()
     driver_base_state.globals['tainted_objects'] = ()
@@ -453,6 +455,8 @@ def analyze_driver(driver_path):
     globals.proj.hook_symbol("MmAllocateContiguousMemorySpecifyCache", hooks.HookMmAllocateContiguousMemorySpecifyCache(cc=globals.mycc))
     globals.proj.hook_symbol('MmMapIoSpace', hooks.HookMmMapIoSpace(cc=globals.mycc))
     globals.proj.hook_symbol('MmMapIoSpaceEx', hooks.HookMmMapIoSpaceEx(cc=globals.mycc))
+    globals.proj.hook_symbol('IoAllocateMdl', hooks.HookIoAllocateMdl(cc=globals.mycc))
+    globals.proj.hook_symbol('MmProbeAndLockPages', hooks.HookMmProbeAndLockPages(cc=globals.mycc))
     globals.proj.hook_symbol('HalTranslateBusAddress', hooks.HookHalTranslateBusAddress(cc=globals.mycc))
     globals.proj.hook_symbol('ZwMapViewOfSection', hooks.HookZwMapViewOfSection(cc=globals.mycc))
     globals.proj.hook_symbol('ZwOpenProcess', hooks.HookZwOpenProcess(cc=globals.mycc))

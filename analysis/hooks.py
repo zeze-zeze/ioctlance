@@ -191,32 +191,25 @@ class HookProbeForRead(angr.SimProcedure):
     # Tag the tainted buffer that is validated with ProbeForRead.
     def run(self, Address, Length, Alignment):
         if globals.phase == 2:
-            if 'tainted_ProbeForRead' in self.state.globals and utils.tainted_buffer(Address):
-                asts = [i for i in Address.children_asts()]
-                target_base = asts[0] if len(asts) > 1 else Address
-
-                ret_addr = hex(self.state.callstack.ret_addr)
-                self.state.globals['tainted_ProbeForRead'] += (str(target_base), )
+            base_address = utils.get_base_address(Address)
+            if ('tainted_ProbeForRead' in self.state.globals) and utils.tainted_buffer(base_address):
+                self.state.globals['tainted_ProbeForRead'] += (str(base_address), )
 
 class HookProbeForWrite(angr.SimProcedure):
     # Tag the tainted buffer that is validated with ProbeForWrite.
     def run(self, Address, Length, Alignment):
         if globals.phase == 2:
-            if 'tainted_ProbeForWrite' in self.state.globals and utils.tainted_buffer(Address):
-                asts = [i for i in Address.recursive_children_asts]
-                target_base = asts[0] if len(asts) > 1 else Address
-                ret_addr = hex(self.state.callstack.ret_addr)
-                self.state.globals['tainted_ProbeForWrite'] += (str(target_base), )
+            base_address = utils.get_base_address(Address)
+            if ('tainted_ProbeForWrite' in self.state.globals) and utils.tainted_buffer(base_address):
+                self.state.globals['tainted_ProbeForWrite'] += (str(base_address), )
 
 class HookMmIsAddressValid(angr.SimProcedure):
     # Tag the tainted buffer that is validated with MmIsAddressValid.
     def run(self, VirtualAddress):
         if globals.phase == 2:
-            if 'tainted_MmIsAddressValid' in self.state.globals and utils.tainted_buffer(VirtualAddress):
-                asts = [i for i in VirtualAddress.recursive_children_asts]
-                target_base = asts[0] if len(asts) > 1 else VirtualAddress
-                ret_addr = hex(self.state.callstack.ret_addr)
-                self.state.globals['tainted_MmIsAddressValid'] += (str(target_base), )
+            base_address = utils.get_base_address(VirtualAddress)
+            if ('tainted_MmIsAddressValid' in self.state.globals) and utils.tainted_buffer(base_address):
+                self.state.globals['tainted_MmIsAddressValid'] += (str(base_address), )
         return 1
 
 class HookZwOpenSection(angr.SimProcedure):
@@ -376,6 +369,35 @@ class HookMmMapIoSpaceEx(angr.SimProcedure):
                 utils.print_vuln('map physical memory', 'MmMapIoSpaceEx - PhysicalAddress controllable', self.state, {'PhysicalAddress': str(PhysicalAddress), 'NumberOfBytes': str(NumberOfBytes)}, {'return address': ret_addr})
         
         return utils.next_base_addr()
+    
+class HookIoAllocateMdl(angr.SimProcedure):
+    def run(self, VirtualAddress, Length, SecondaryBuffer, ChargeQuota, Irp):
+        if globals.phase == 2:
+            ret_addr = hex(self.state.callstack.ret_addr)
+            allocated_ptr = claripy.BVS(f"IoAllocateMdl_{ret_addr}", self.state.arch.bits)
+
+            # If the VirtualAddress is tainted, we propagate our taint to the mdl also keeping the 
+            # MDL <-> VA mapping to later be able to retrieve it with functions like MmProbeAndLockPages
+            if utils.tainted_buffer(VirtualAddress):
+                self.state.globals['tainted_mdls'][str(allocated_ptr)] = str(VirtualAddress)
+            return allocated_ptr
+        else:
+            return utils.next_base_addr()
+
+class HookMmProbeAndLockPages(angr.SimProcedure):
+    def run(self, MemoryDescriptorList, AccessMode, Operation):
+        if self.state.solver.eval(AccessMode == 0):
+            # If AccessMode == KernelMode, MmProbeAndLockPages should allow everything
+            return
+        
+        mdl = str(MemoryDescriptorList)
+        if mdl not in self.state.globals['tainted_mdls']:
+            return
+        
+        # Once the MDL has been probed, it is no more tainted. We store the fact that the underlying original
+        # VA is now probed
+        self.state.globals['tainted_MmProbeAndLockPages'] += (self.state.globals['tainted_mdls'][mdl], )
+        del self.state.globals['tainted_mdls']        
 
 class HookHalTranslateBusAddress(angr.SimProcedure):
     def run(self, InterfaceType, BusNumber, BusAddress, AddressSpace, TranslatedAddress):
@@ -457,16 +479,9 @@ class HookZwTerminateProcess(angr.SimProcedure):
 class HookMemcpy(angr.SimProcedure):
     def run(self, dest, src, size):
         ret_addr = hex(self.state.callstack.ret_addr)
-        dest_asts = [i for i in dest.children_asts()]
-        dest_base = dest_asts[0] if len(dest_asts) > 1 else dest
-        dest_vars = dest.variables
-
-        src_asts = [i for i in src.children_asts()]
-        src_base = src_asts[0] if len(src_asts) > 1 else src
-        src_vars = src.variables
 
         # Check whether the src or dest address can be controlled.
-        if ('*' in str(dest) and utils.tainted_buffer(dest) and str(dest_base) not in self.state.globals['tainted_ProbeForWrite'] and len(dest_vars) == 1) or ('*' in str(src) and utils.tainted_buffer(src) and str(src_base) not in self.state.globals['tainted_ProbeForRead'] and len(src_vars) == 1):
+        if utils.tainted_memory_address(self.state, dest) or utils.tainted_memory_address(self.state, src):
             utils.print_vuln('dest or src controllable', 'memcpy/memmove', self.state, {'dest': str(dest), 'src': str(src), 'size': str(size)}, {'return address': ret_addr})
 
         # Buffer overflow detected if the size can be controlled and the destination address is not symbolic to avoid false positive.
