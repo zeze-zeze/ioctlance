@@ -89,7 +89,7 @@ def print_vuln(title, description, state, parameters, others):
     if vuln_nnuple in globals.vulns_unique:
         return
     
-    globals.vulns_unique.add((title, state.addr))
+    globals.vulns_unique.add(vuln_nnuple)
    
     data['others'] = others
     if 'tainted_ProbeForRead' in state.globals and len(state.globals['tainted_ProbeForRead']) > 0:

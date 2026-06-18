@@ -205,7 +205,7 @@ class HookProbeForWrite(angr.SimProcedure):
     def run(self, Address, Length, Alignment):
         if globals.phase == 2:
             if 'tainted_ProbeForWrite' in self.state.globals and utils.tainted_buffer(Address):
-                asts = [i for i in Address.recursive_children_asts]
+                asts = [i for i in Address.children_asts()]
                 target_base = asts[0] if len(asts) > 1 else Address
                 ret_addr = hex(self.state.callstack.ret_addr)
                 self.state.globals['tainted_ProbeForWrite'] += (str(target_base), )
@@ -215,7 +215,7 @@ class HookMmIsAddressValid(angr.SimProcedure):
     def run(self, VirtualAddress):
         if globals.phase == 2:
             if 'tainted_MmIsAddressValid' in self.state.globals and utils.tainted_buffer(VirtualAddress):
-                asts = [i for i in VirtualAddress.recursive_children_asts]
+                asts = [i for i in VirtualAddress.children_asts()]
                 target_base = asts[0] if len(asts) > 1 else VirtualAddress
                 ret_addr = hex(self.state.callstack.ret_addr)
                 self.state.globals['tainted_MmIsAddressValid'] += (str(target_base), )
