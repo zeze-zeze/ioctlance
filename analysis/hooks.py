@@ -242,32 +242,41 @@ class HookZwOpenSection(angr.SimProcedure):
 
 class HookRtlInitUnicodeString(angr.SimProcedure):
     def run(self, DestinationString, SourceString):
-        ret_addr = hex(self.state.callstack.ret_addr)
-        
-        # Resolve the SourceString.
-        try:
-            if SourceString.symbolic and utils.tainted_buffer(SourceString):
-                raise
-            string_orig = self.state.mem[SourceString].wstring.resolved
-        except:
-            string_orig = claripy.Concat(claripy.BVS(f"RtlInitUnicodeString_{ret_addr}", 8 * 10), claripy.BVV(0, 16))
-
-        # Initalize the DestinationString.
-        byte_length = string_orig.length // 8
-        new_buffer = utils.next_base_addr()
-        self.state.memory.store(new_buffer, string_orig, byte_length, disable_actions=True, inspect=False)
-        unistr = self.state.mem[DestinationString].struct._UNICODE_STRING
-        self.state.memory.store(DestinationString, claripy.BVV(0, unistr._type.size), unistr._type.size // 8, disable_actions=True, inspect=False)
-        unistr.Length = byte_length
-        unistr.MaximumLength = byte_length
-        unistr.Buffer = new_buffer
-
-        # Store the unicode string if it is tainted.
-        if (not SourceString.symbolic and utils.tainted_buffer(self.state.memory.load(SourceString, 0x10, disable_actions=True, inspect=False))) or utils.tainted_buffer(SourceString) or str(SourceString) in self.state.globals['tainted_unicode_strings']:
-            self.state.globals['tainted_unicode_strings'] += (str(unistr.Buffer.resolved), )
-
+        utils.init_os_string(self.state, DestinationString, SourceString, 'unicode')
         return 0
 
+class HookRtlInitAnsiString(angr.SimProcedure):
+    def run(self, DestinationString, SourceString):
+        utils.init_os_string(self.state, DestinationString, SourceString, 'ansi')
+        return 0
+
+class HookRtlAnsiStringToUnicodeString(angr.SimProcedure):
+    def run(self, DestinationString, SourceString, AllocateDestinationString):
+        ret_addr = hex(self.state.callstack.ret_addr)
+
+        # Let's fix a concrete value for the source string length
+        src_ansi_struct = self.state.mem[SourceString].struct._STRING
+        src_len = src_ansi_struct.Length
+        conc_src_len = self.state.solver.min(src_len.resolved)
+        self.state.solver.add(src_len.resolved == conc_src_len)
+
+        # Let's fix a concrete value for the destination buffer maximum length
+        dst_unistr = self.state.mem[DestinationString].struct._UNICODE_STRING
+        dst_maxi_len = dst_unistr.MaximumLength
+        conc_dst_max_len = self.state.solver.min(dst_maxi_len.resolved)
+        self.state.solver.add(dst_maxi_len.resolved == conc_dst_max_len)
+
+        # Let's fix the destination view
+        max_bytes_to_copy = min(conc_dst_max_len, conc_src_len * 2)
+        if self.state.solver.eval(AllocateDestinationString[7:0] != 0):
+            dst_unistr.Buffer = utils.next_base_addr()
+        dst_unistr.Length = max_bytes_to_copy
+        dst_unistr.MaximumLength = max_bytes_to_copy
+
+        if utils.tainted_string_pointer(self.state, src_ansi_struct.Buffer.resolved, 'ansi'):
+            self.state.globals["tainted_unicode_strings"] += (str(dst_unistr.Buffer.resolved), )
+        
+        return 0
 
 class HookRtlCopyUnicodeString(angr.SimProcedure):
     def run(self, DestinationString, SourceString):
@@ -540,6 +549,14 @@ class HookIoCreateFileSpecifyDeviceObjectHint(angr.SimProcedure):
         if globals.phase == 2:
             # Check if we can control the parameters of IoCreateFileSpecifyDeviceObjectHint.
             utils.analyze_ObjectAttributes('IoCreateFileSpecifyDeviceObjectHint', self.state, ObjectAttributes)
+
+        return 0
+    
+class HookIoGetDeviceObjectPointer(angr.SimProcedure):
+    def run(self, ObjectName, DesiredAccess, FileObject, DeviceObject):
+        if globals.phase == 2 and utils.tainted_object_name(self.state, ObjectName):
+            ret_addr = hex(self.state.callstack.ret_addr)
+            utils.print_vuln(f'Controllable ObjectName', 'IoGetDeviceObjectPointer', self.state, {'ObjectName': str(ObjectName), 'DesiredAccress': str(DesiredAccess[31:0])}, {'return address': ret_addr})
 
         return 0
 

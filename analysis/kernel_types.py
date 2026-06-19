@@ -75,6 +75,12 @@ typedef unsigned long long ULONGLONG, *PULONGLONG;
 typedef wchar_t WCHAR;
 typedef WCHAR *NWPSTR, *LPWSTR, *PWSTR;
 
+typedef struct _STRING {
+  USHORT Length;
+  USHORT MaximumLength;
+  PCHAR  Buffer;
+} STRING;
+
 typedef struct _UNICODE_STRING {
   USHORT Length;
   USHORT MaximumLength;

@@ -1,5 +1,6 @@
 import collections
 import cle
+import claripy
 from cle.backends.pe.relocation.generic import DllImport
 from typing import Optional
 import globals
@@ -25,6 +26,66 @@ def tainted_buffer(s):
         return 'OutputBufferLength'
     else:
         return ''
+    
+def tainted_string_pointer(state, string_ptr, kind): 
+    """
+    Checks if a PCHAR or a PWCHAR is tainted
+    """
+    taint_collection = "tainted_ansi_strings" if kind == "ansi" else "tainted_unicode_strings"
+    return (not string_ptr.symbolic and tainted_buffer(state.memory.load(string_ptr, 0x10, disable_actions=True, inspect=False))) or tainted_buffer(string_ptr) or str(string_ptr) in state.globals[taint_collection]
+
+def tainted_object_name(state, ObjectName): 
+    """
+    Checks if a provided ObjectName, in the form of a UNICODE_STRING, is tainted 
+    """
+    Buffer = state.mem[ObjectName].struct._UNICODE_STRING.Buffer.resolved
+    return str(Buffer) in state.globals['tainted_unicode_strings'] or tainted_buffer(state.memory.load(Buffer, 0x80))
+
+def fill_os_string(state, DestinationString, string_ptr, kind):
+    """
+    Fills an OS-defined string structure (UNICODE_STRING or STRING) using characters from a provided string pointer (PCHAR or a PWCHAR)
+
+    :return: UNICODE_STRING or STRING view of DestinationString
+    """
+    os_string_struct = state.mem[DestinationString].struct._STRING if kind == "ansi" else state.mem[DestinationString].struct._UNICODE_STRING
+    os_string_struct_size_bits = os_string_struct._type.size
+
+    # Initalize the DestinationString.
+    byte_length = string_ptr.length // 8
+    new_buffer = next_base_addr()
+    state.memory.store(new_buffer, string_ptr, byte_length, disable_actions=True, inspect=False)
+
+    state.memory.store(DestinationString, claripy.BVV(0, os_string_struct_size_bits), os_string_struct_size_bits // 8, disable_actions=True, inspect=False)
+    os_string_struct.Length = byte_length
+    os_string_struct.MaximumLength = byte_length
+    os_string_struct.Buffer = new_buffer
+
+    return os_string_struct
+
+def init_os_string(state, DestinationString, SourceString, kind):
+    """
+    Initializes DestinationString using data from SourceString. If SourceString is tainted, updates the taints collection
+    """
+
+    ret_addr = hex(state.callstack.ret_addr)
+    init_function = "RtlInitAnsiString" if kind == "ansi" else "RtlInitUnicodeString"
+    taint_collection = "tainted_ansi_strings" if kind == "ansi" else "tainted_unicode_strings"
+    char_size = state.mem.CHAR._type.size if kind == "ansi" else state.mem.WCHAR._type.size
+
+    # Resolve the SourceString.
+    try:
+        if SourceString.symbolic and tainted_buffer(SourceString):
+            raise
+       
+        string_orig = state.mem[SourceString].string.resolved if kind == "ansi" else state.mem[SourceString].wstring.resolved
+    except:
+        string_orig = claripy.Concat(claripy.BVS(f"{init_function}_{ret_addr}", 8 * 10), claripy.BVV(0, char_size))
+
+    os_string_struct = fill_os_string(state, DestinationString, string_orig, kind)
+
+    # Store the unicode string if it is tainted.
+    if tainted_string_pointer(state, SourceString, kind):
+        state.globals[taint_collection] += (str(os_string_struct.Buffer.resolved),)
 
 def analyze_ObjectAttributes(func_name, state, ObjectAttributes):
     ObjectName = state.mem[ObjectAttributes].struct._OBJECT_ATTRIBUTES.ObjectName.resolved
@@ -36,7 +97,7 @@ def analyze_ObjectAttributes(func_name, state, ObjectAttributes):
     tmp_state.solver.add(Attributes & 1024 == 0)
     
     # Check if the ObjectName is controllable.
-    if tmp_state.satisfiable() and (str(state.mem[ObjectName].struct._UNICODE_STRING.Buffer.resolved) in state.globals['tainted_unicode_strings'] or tainted_buffer(state.memory.load(Buffer, 0x80))):
+    if tmp_state.satisfiable() and tainted_object_name(state, ObjectName):
         ret_addr = hex(state.callstack.ret_addr)
         print_vuln(f'ObjectName in ObjectAttributes controllable', func_name, state, {'ObjectAttributes': {'ObjectName': str(ObjectName), 'ObjectName.Buffer': str(state.memory.load(Buffer, 0x80).reversed), 'Attributes': str(Attributes)}}, {'return address': ret_addr})
     
